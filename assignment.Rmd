@@ -1,0 +1,92 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Jianglei Han"
+date: "12 July 2015"
+output: html_document
+---
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Loading dataset
+```{r results='hide', message=FALSE, warning=FALSE}
+require(caret)
+require(foreach)
+require(doParallel)
+require(randomForest)
+
+
+setwd("~/Dropbox/Workspaces/practical_machine_learning_assignment")
+training_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+predict_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training_path <- "pml-training.csv"
+predict_path <- "pml-testing.csv"
+
+if (!file.exists(training_path)){
+  download.file(url=training_url, destfile=training_path, method="curl")
+}
+if (!file.exists(predict_path)) {
+  download.file(url=predict_url, destfile=predict_path, method="curl")
+}
+training_data <- read.csv(training_path, na.strings=c("NA",""), strip.white=T)
+```
+## Exploring data
+To have a overview of the dataset loaded.
+```{r}
+dim(training_data)
+```
+## Subsetting dataset
+By exploring the dataset, we observed that the first 7 columns contains only information to identify the individual subjects.
+They are not very useful for training the model. We want to select a set of features by filtering columns with NA entries.
+
+```{r}
+feature_set <- colnames(training_data[colSums(is.na(training_data)) == 0])[-(1:7)]
+model_data <- training_data[feature_set]
+names(model_data)
+```
+
+## Splitting data
+```{r}
+inTrain <- createDataPartition(model_data$classe, 
+                               p = 0.7,
+                               list = FALSE)
+training <- model_data[inTrain,]
+testing <- model_data[-inTrain,]
+```
+
+## Training model
+### Random Forest
+```{r}
+registerDoParallel()
+x <- training[-ncol(training)]
+y <- training$classe
+
+rf <- foreach(ntree=rep(150, 6), .combine=randomForest::combine, .packages='randomForest') %dopar% {
+randomForest(x, y, ntree=ntree) 
+}
+```
+
+## Predict
+```{r}
+predict_data <- read.csv(predict_path, na.strings=c("NA",""), strip.white=T)
+predict_data <- predict_data[feature_set[feature_set!='classe']]
+
+answers <- predict(rf, newdata=predict_data)
+answers
+```
+
+## Output
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
